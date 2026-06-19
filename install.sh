@@ -11,23 +11,21 @@ pip install -q requests matplotlib pandas numpy mplcursors
 
 cat > quantiq_client.py << 'PYEOF'
 #!/usr/bin/env python3
-"""QuantIQ Client – Full table + interactive parallel coordinates."""
+"""QuantIQ Client – Interactive lead scoring with terminal table and saved graphs."""
 
-import sys, os, json, webbrowser
+import sys, os, json
 import requests
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')           # do not open windows automatically
 import matplotlib.pyplot as plt
 import mplcursors
 from pathlib import Path
 
 CONFIG_FILE = Path.home() / ".quantiq_config.json"
 API_BASE = "http://46.224.200.113:8001"
-
-def load_key():
-    if CONFIG_FILE.exists():
-        with open(CONFIG_FILE) as f:
-            return json.load(f).get("api_key")
-    return None
+SAVE_DIR = Path.home() / "quantiq-client" / "graphs"
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 def save_key(key):
     with open(CONFIG_FILE, "w") as f:
@@ -49,12 +47,12 @@ def main():
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
 
-    # Always ask for API key
+    # 1. API key (always ask)
     key = input("Enter your QuantIQ API key: ").strip()
     save_key(key)
     print("Key saved.\n")
 
-    # Optional own data file
+    # 2. Optional data file
     filename = input("Optional: Data file name (e.g., my_leads.csv) or press Enter to skip: ").strip()
     if filename:
         filetype = input("Type of file (csv/json/tsv/xlsx): ").strip().lower()
@@ -63,7 +61,7 @@ def main():
         if validate_file(full_path):
             consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
             if consent == "Y":
-                print("File accepted. (Upload feature coming soon – using demo leads for now.)")
+                print("File accepted. (Upload feature will be added soon – currently using demo leads.)")
             else:
                 print("Consent denied. Using pre-loaded leads.")
         else:
@@ -71,6 +69,7 @@ def main():
     else:
         print("No file provided. Using pre-loaded leads from QuantIQ server.")
 
+    # 3. Number of leads
     limit = 10
     ans = input("\nHow many leads would you like to score? (default 10): ").strip()
     if ans.isdigit():
@@ -92,7 +91,7 @@ def main():
     graphs = data.get("graphs", {})
     usage = data.get("usage", {})
 
-    # ---------- Terminal table ----------
+    # -------- Terminal table (all 9 columns) ----------
     print(f"\nCall #{usage.get('call_number', '?')}  |  {limit} leads")
     headers = ["Priority", "LeadID", "Intent", "Kernel", "RBF", "Gap", "Unc", "Ent", "QFeat"]
     row_fmt = "{:<10}" * len(headers)
@@ -120,81 +119,65 @@ def main():
     print("  Stats  = 1.0")
     print("  OpsRes = -10")
 
-    # ---------- Interactive parallel coordinates ----------
-    if not plot_rows:
-        return
-    data_arr = np.array(plot_rows)
-    axes_idx = [0, 3, 4, 5, 6, 7, 8]
-    axes_names = ['Priority','Kernel','RBF','Gap','Unc','Ent','QFeat']
-    n_axes = len(axes_idx)
-    n_leads = data_arr.shape[0]
-    lead_ids = data_arr[:,1].astype(int)
-    intent_vals = data_arr[:,2].astype(int)
-    priority_vals = data_arr[:,0].astype(float)
+    # ---------- Interactive parallel coordinates (saved to file) ----------
+    if plot_rows:
+        data_arr = np.array(plot_rows)
+        axes_idx = [0, 3, 4, 5, 6, 7, 8]
+        axes_names = ['Priority','Kernel','RBF','Gap','Unc','Ent','QFeat']
+        n_axes = len(axes_idx)
+        n_leads = data_arr.shape[0]
+        lead_ids = data_arr[:,1].astype(int)
+        intent_vals = data_arr[:,2].astype(int)
+        priority_vals = data_arr[:,0].astype(float)
 
-    X = np.zeros((n_leads, n_axes))
-    for i, col_idx in enumerate(axes_idx):
-        col = data_arr[:, col_idx].astype(float)
-        if col_idx == 8:
-            X[:, i] = col / 15.0
-        else:
-            minv, maxv = col.min(), col.max()
-            X[:, i] = (col - minv) / (maxv - minv) if maxv > minv else 0.5
-
-    fig, ax = plt.subplots(figsize=(12,6))
-    lines = []
-    for i in range(n_leads):
-        cmap = plt.cm.Blues if intent_vals[i] == 1 else plt.cm.Oranges
-        c_intensity = 0.2 + 0.8 * (priority_vals[i] - priority_vals.min()) / (priority_vals.max() - priority_vals.min())
-        line, = ax.plot(range(n_axes), X[i], marker='o', markersize=2,
-                        linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
-        lines.append(line)
-
-    ax.set_xticks(range(n_axes))
-    ax.set_xticklabels(axes_names)
-    ax.set_title('Interactive Parallel Coordinates – Hover to highlight a lead')
-
-    def on_hover(sel):
-        idx = lines.index(sel.artist)
-        for j, l in enumerate(lines):
-            if j == idx:
-                l.set_linewidth(2.0)
-                l.set_alpha(1.0)
+        X = np.zeros((n_leads, n_axes))
+        for i, col_idx in enumerate(axes_idx):
+            col = data_arr[:, col_idx].astype(float)
+            if col_idx == 8:
+                X[:, i] = col / 15.0
             else:
-                l.set_linewidth(0.6)
-                l.set_alpha(0.3)
-        sel.annotation.set_text(f"Lead ID: {lead_ids[idx]}")
-        sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)
-        fig.canvas.draw_idle()
+                minv, maxv = col.min(), col.max()
+                X[:, i] = (col - minv) / (maxv - minv) if maxv > minv else 0.5
 
-    def on_mouse_move(event):
-        if event.inaxes != ax:
-            for l in lines:
-                l.set_linewidth(0.8)
-                l.set_alpha(0.7)
-            fig.canvas.draw_idle()
-            return
-        over = any(line.contains(event)[0] for line in lines)
-        if not over:
-            for l in lines:
-                l.set_linewidth(0.8)
-                l.set_alpha(0.7)
-            fig.canvas.draw_idle()
+        fig, ax = plt.subplots(figsize=(12,6))
+        lines = []
+        for i in range(n_leads):
+            cmap = plt.cm.Blues if intent_vals[i] == 1 else plt.cm.Oranges
+            c_intensity = 0.2 + 0.8 * (priority_vals[i] - priority_vals.min()) / (priority_vals.max() - priority_vals.min())
+            line, = ax.plot(range(n_axes), X[i], marker='o', markersize=2,
+                            linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
+            lines.append(line)
 
-    cursor = mplcursors.cursor(lines, hover=True)
-    cursor.connect("add", on_hover)
-    cursor.connect("remove", lambda sel: None)
-    fig.canvas.mpl_connect("motion_notify_event", on_mouse_move)
+        ax.set_xticks(range(n_axes))
+        ax.set_xticklabels(axes_names)
+        ax.set_title('Interactive Parallel Coordinates – Hover to highlight a lead')
 
-    plt.tight_layout()
-    plt.show()
+        # Save the static parallel coordinates figure
+        parallel_path = SAVE_DIR / "parallel_coordinates.png"
+        plt.tight_layout()
+        plt.savefig(parallel_path, dpi=120)
+        plt.close()
+        print(f"\nParallel coordinates graph saved to: {parallel_path}")
 
-    # Open server graphs
-    print("\nOpening analytical graphs...")
+    # Download server-generated graphs
+    print("\nServer analytical graphs (2D, 3D, comparison):")
     for name, path in graphs.items():
         url = f"{API_BASE}{path}"
-        webbrowser.open(url)
-        print(f"  {name}: {url}")
+        try:
+            r = requests.get(url)
+            if r.status_code == 200:
+                fname = f"{name}_{usage.get('call_number','0')}.png"
+                filepath = SAVE_DIR / fname
+                with open(filepath, "wb") as f:
+                    f.write(r.content)
+                print(f"  {name}: saved to {filepath}")
+            else:
+                print(f"  {name}: could not download (status {r.status_code})")
+        except Exception as e:
+            print(f"  {name}: error - {e}")
+
+    print("\nAll graphs saved in:", SAVE_DIR)
+    print("Open them manually to review your leads.")
 
 if __name__ == "__main__":
     main()
@@ -202,6 +185,6 @@ PYEOF
 
 chmod +x quantiq_client.py
 
-# Reconnect stdin to the terminal so the client can read your inputs
+# Reconnect keyboard so the client can answer prompts
 exec < /dev/tty
 ./quantiq_client.py
