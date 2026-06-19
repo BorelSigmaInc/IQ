@@ -45,40 +45,54 @@ def validate_file(filepath):
     return True
 
 def main():
+    interactive = sys.stdin.isatty()
     print("=" * 60)
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
+
     key = load_key()
     if not key:
-        key = input("Enter your QuantIQ API key: ").strip()
-        save_key(key)
-        print("Key saved.")
+        if interactive:
+            key = input("Enter your QuantIQ API key: ").strip()
+            save_key(key)
+            print("Key saved.")
+        else:
+            print("No API key found. Run interactively first with:  ./quantiq_client.py")
+            return
     else:
         print(f"Using saved API key: {key[:20]}...")
 
     # Optional own data file
-    print("\nOptional: Provide your own lead file (press Enter to skip).")
-    filename = input("Data file name (e.g., my_leads.csv): ").strip()
+    filename = None
+    if interactive:
+        print("\nOptional: Provide your own lead file (press Enter to skip).")
+        filename = input("Data file name (e.g., my_leads.csv): ").strip()
     if filename:
-        filetype = input("Type of file (csv/json/tsv/xlsx): ").strip().lower()
-        folder = input("Path of folder containing the file: ").strip()
-        full_path = os.path.join(folder, filename)
-        if validate_file(full_path):
-            consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
-            if consent == "Y":
-                print("File accepted. (Upload feature will be added soon – currently using demo leads.)")
+        if interactive:
+            filetype = input("Type of file (csv/json/tsv/xlsx): ").strip().lower()
+            folder = input("Path of folder containing the file: ").strip()
+            full_path = os.path.join(folder, filename)
+            if validate_file(full_path):
+                consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
+                if consent == "Y":
+                    print("File accepted. (Upload feature will be added soon – currently using demo leads.)")
+                else:
+                    print("Consent denied. Using pre-loaded leads.")
             else:
-                print("Consent denied. Using pre-loaded leads from QuantIQ server.")
+                print("File invalid. Continuing with demo leads.")
         else:
-            print("File invalid. Continuing with demo leads.")
+            print("File upload not supported in non-interactive mode. Using demo leads.")
     else:
-        print("No file provided. Using pre-loaded leads from QuantIQ server.")
+        if not interactive:
+            print("No file provided. Using pre-loaded leads from QuantIQ server.")
 
-    limit = input("\nHow many leads would you like to score? (default 10): ").strip()
-    if not limit.isdigit():
-        limit = 10
+    limit = 10
+    if interactive:
+        ans = input("\nHow many leads would you like to score? (default 10): ").strip()
+        if ans.isdigit():
+            limit = int(ans)
     else:
-        limit = int(limit)
+        print("Non-interactive run – using default of 10 leads.")
 
     print(f"\nFetching {limit} leads from QuantIQ API...")
     try:
@@ -127,8 +141,8 @@ def main():
     # ---------- Interactive parallel coordinates ----------
     if not plot_rows:
         return
-    data_arr = np.array(plot_rows)   # cols: Priority,LeadID,Intent,Kernel,RBF,Gap,Unc,Ent,QFeat
-    axes_idx = [0, 3, 4, 5, 6, 7, 8]  # Priority,Kernel,RBF,Gap,Unc,Ent,QFeat
+    data_arr = np.array(plot_rows)
+    axes_idx = [0, 3, 4, 5, 6, 7, 8]
     axes_names = ['Priority','Kernel','RBF','Gap','Unc','Ent','QFeat']
     n_axes = len(axes_idx)
     n_leads = data_arr.shape[0]
@@ -187,7 +201,7 @@ def main():
 
     cursor = mplcursors.cursor(lines, hover=True)
     cursor.connect("add", on_hover)
-    cursor.connect("remove", lambda sel: None)   # keep highlight on
+    cursor.connect("remove", lambda sel: None)
     fig.canvas.mpl_connect("motion_notify_event", on_mouse_move)
 
     plt.tight_layout()
