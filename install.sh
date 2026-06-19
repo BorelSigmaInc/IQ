@@ -2,17 +2,21 @@
 set -e
 
 INSTALL_DIR="$HOME/quantiq-client"
-rm -rf "$INSTALL_DIR"          # always start fresh
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-python3 -m venv venv
-source venv/bin/activate
-pip install -q requests matplotlib pandas numpy plotly
+# ---------- fast path ----------
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -q requests matplotlib pandas numpy mplcursors
+else
+    source venv/bin/activate
+fi
 
 cat > quantiq_client.py << 'PYEOF'
 #!/usr/bin/env python3
-"""QuantIQ Client – interactive parallel coordinates (Plotly) + static graphs."""
+"""QuantIQ Client – Interactive lead scoring with terminal table and saved graphs."""
 
 import sys, os, json, webbrowser
 import requests
@@ -20,8 +24,6 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import plotly.express as px
-import pandas as pd
 from pathlib import Path
 
 CONFIG_FILE = Path.home() / ".quantiq_config.json"
@@ -49,10 +51,10 @@ def main():
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
 
-    # 1. Consent
+    # 1. Consent before anything else
     consent = input("Proceed to score leads using QuantIQ API? (Y/N): ").strip().upper()
     if consent != "Y":
-        print("Exiting.")
+        print("Exiting. You can run the command again when you're ready.")
         return
     print()
 
@@ -128,30 +130,14 @@ def main():
     print("  Stats  = 1.0")
     print("  OpsRes = -10")
 
-    # ---------- Interactive parallel coordinates (Plotly) ----------
+    # ---------- Parallel coordinates (saved) ----------
     if plot_rows:
-        df = pd.DataFrame(plot_rows, columns=[
-            'Priority', 'LeadID', 'Intent', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat'
-        ])
-        # Include LeadID and Intent as dimensions so they appear on hover automatically
-        fig = px.parallel_coordinates(
-            df,
-            dimensions=['Priority', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat',
-                        'LeadID', 'Intent'],
-            color='Priority',
-            color_continuous_scale=px.colors.sequential.Blues,
-            title='Interactive Parallel Coordinates – Hover to see all values'
-        )
-        html_path = SAVE_DIR / "parallel_coordinates.html"
-        fig.write_html(str(html_path))
-        print(f"\nInteractive parallel coordinates saved to: {html_path}")
-
-        # Static PNG
         data_arr = np.array(plot_rows)
         axes_idx = [0, 3, 4, 5, 6, 7, 8]
         axes_names = ['Priority','Kernel','RBF','Gap','Unc','Ent','QFeat']
         n_axes = len(axes_idx)
         n_leads = data_arr.shape[0]
+        lead_ids = data_arr[:,1].astype(int)
         intent_vals = data_arr[:,2].astype(int)
         priority_vals = data_arr[:,0].astype(float)
 
@@ -164,19 +150,20 @@ def main():
                 minv, maxv = col.min(), col.max()
                 X[:, i] = (col - minv) / (maxv - minv) if maxv > minv else 0.5
 
-        fig_static, ax = plt.subplots(figsize=(12,6))
+        fig, ax = plt.subplots(figsize=(12,6))
         for i in range(n_leads):
             cmap = plt.cm.Blues if intent_vals[i] == 1 else plt.cm.Oranges
             c_intensity = 0.2 + 0.8 * (priority_vals[i] - priority_vals.min()) / (priority_vals.max() - priority_vals.min())
             ax.plot(range(n_axes), X[i], marker='o', markersize=2, linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
+
         ax.set_xticks(range(n_axes))
         ax.set_xticklabels(axes_names)
         ax.set_title('Parallel Coordinates – Lead Profiles')
-        static_path = SAVE_DIR / "parallel_coordinates.png"
+        path = SAVE_DIR / "parallel_coordinates.png"
         plt.tight_layout()
-        plt.savefig(static_path, dpi=120)
-        plt.close(fig_static)
-        print(f"Static version saved to: {static_path}")
+        plt.savefig(path, dpi=120)
+        plt.close()
+        print(f"\nParallel coordinates graph saved to: {path}")
 
     # ---------- Download server graphs ----------
     saved_files = []
@@ -197,16 +184,18 @@ def main():
         except Exception as e:
             print(f"  {name}: error - {e}")
 
+    # Add parallel coordinates to the list
+    if plot_rows:
+        saved_files.append(str(SAVE_DIR / "parallel_coordinates.png"))
+
     print("\nAll graphs saved in:", SAVE_DIR)
 
-    # Offer to open
-    open_now = input("\nOpen the graphs now to review your leads? (Y/N): ").strip().upper()
+    # ---------- Offer to open ----------
+    open_now = input("\nOpen them now to review your leads? (Y/N): ").strip().upper()
     if open_now == "Y":
-        html_path = SAVE_DIR / "parallel_coordinates.html"
-        if html_path.exists():
-            webbrowser.open(f"file://{html_path}")
         for f in saved_files:
             webbrowser.open(f"file://{f}")
+            print(f"Opened: {f}")
 
 if __name__ == "__main__":
     main()
