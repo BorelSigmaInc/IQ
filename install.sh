@@ -2,13 +2,11 @@
 set -e
 
 INSTALL_DIR="$HOME/quantiq-client"
+rm -rf "$INSTALL_DIR"          # always start fresh
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Always ensure the virtual environment and all dependencies are ready
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-fi
+python3 -m venv venv
 source venv/bin/activate
 pip install -q requests matplotlib pandas numpy plotly
 
@@ -20,7 +18,7 @@ import sys, os, json, webbrowser
 import requests
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')   # used only for static PNGs
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import plotly.express as px
 import pandas as pd
@@ -130,31 +128,25 @@ def main():
     print("  Stats  = 1.0")
     print("  OpsRes = -10")
 
-    # ---------- Interactive parallel coordinates (Plotly HTML) ----------
+    # ---------- Interactive parallel coordinates (Plotly) ----------
     if plot_rows:
         df = pd.DataFrame(plot_rows, columns=[
             'Priority', 'LeadID', 'Intent', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat'
         ])
+        # Include LeadID and Intent as dimensions so they appear on hover automatically
         fig = px.parallel_coordinates(
             df,
-            dimensions=['Priority', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat'],
+            dimensions=['Priority', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat',
+                        'LeadID', 'Intent'],
             color='Priority',
             color_continuous_scale=px.colors.sequential.Blues,
-            labels={col: col for col in df.columns},
-            title='Interactive Parallel Coordinates – Hover to see Lead ID'
-        )
-        fig.update_traces(
-            hovertemplate='<br>'.join([
-                'LeadID: %{customdata[0]}',
-                'Intent: %{customdata[1]}',
-            ]),
-            customdata=df[['LeadID', 'Intent']].values
+            title='Interactive Parallel Coordinates – Hover to see all values'
         )
         html_path = SAVE_DIR / "parallel_coordinates.html"
         fig.write_html(str(html_path))
         print(f"\nInteractive parallel coordinates saved to: {html_path}")
 
-        # Static PNG version
+        # Static PNG
         data_arr = np.array(plot_rows)
         axes_idx = [0, 3, 4, 5, 6, 7, 8]
         axes_names = ['Priority','Kernel','RBF','Gap','Unc','Ent','QFeat']
@@ -207,7 +199,7 @@ def main():
 
     print("\nAll graphs saved in:", SAVE_DIR)
 
-    # Offer to open the interactive HTML and static graphs
+    # Offer to open
     open_now = input("\nOpen the graphs now to review your leads? (Y/N): ").strip().upper()
     if open_now == "Y":
         html_path = SAVE_DIR / "parallel_coordinates.html"
