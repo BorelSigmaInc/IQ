@@ -5,7 +5,7 @@ INSTALL_DIR="$HOME/quantiq-client"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# ---------- fast path: skip if venv already exists ----------
+# ---------- fast path ----------
 if [ ! -d "venv" ]; then
     python3 -m venv venv
     source venv/bin/activate
@@ -14,12 +14,11 @@ else
     source venv/bin/activate
 fi
 
-# ---------- write / update the client script ----------
 cat > quantiq_client.py << 'PYEOF'
 #!/usr/bin/env python3
 """QuantIQ Client – Interactive lead scoring with terminal table and saved graphs."""
 
-import sys, os, json
+import sys, os, json, webbrowser
 import requests
 import numpy as np
 import matplotlib
@@ -52,20 +51,27 @@ def main():
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
 
-    # 1. API key
+    # 1. Consent before anything else
+    consent = input("Proceed to score leads using QuantIQ API? (Y/N): ").strip().upper()
+    if consent != "Y":
+        print("Exiting. You can run the command again when you're ready.")
+        return
+    print()
+
+    # 2. API key
     key = input("Enter your QuantIQ API key: ").strip()
     save_key(key)
     print("Key saved.\n")
 
-    # 2. Optional data file
+    # 3. Optional data file
     filename = input("Optional: Data file name (e.g., my_leads.csv) or press Enter to skip: ").strip()
     if filename:
         filetype = input("Type of file (csv/json/tsv/xlsx): ").strip().lower()
         folder = input("Path of folder containing the file: ").strip()
         full_path = os.path.join(folder, filename)
         if validate_file(full_path):
-            consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
-            if consent == "Y":
+            file_consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
+            if file_consent == "Y":
                 print("File accepted. (Upload feature coming soon – using demo leads for now.)")
             else:
                 print("Consent denied. Using pre-loaded leads.")
@@ -74,7 +80,7 @@ def main():
     else:
         print("No file provided. Using pre-loaded leads from QuantIQ server.")
 
-    # 3. Number of leads
+    # 4. Number of leads
     limit = 10
     ans = input("\nHow many leads would you like to score? (default 10): ").strip()
     if ans.isdigit():
@@ -160,6 +166,7 @@ def main():
         print(f"\nParallel coordinates graph saved to: {path}")
 
     # ---------- Download server graphs ----------
+    saved_files = []
     print("\nServer analytical graphs (2D, 3D, comparison):")
     for name, rel_path in graphs.items():
         url = f"{API_BASE}{rel_path}"
@@ -170,20 +177,29 @@ def main():
                 filepath = SAVE_DIR / fname
                 with open(filepath, "wb") as f:
                     f.write(r.content)
+                saved_files.append(str(filepath))
                 print(f"  {name}: saved to {filepath}")
             else:
                 print(f"  {name}: could not download (status {r.status_code})")
         except Exception as e:
             print(f"  {name}: error - {e}")
 
+    # Add parallel coordinates to the list
+    if plot_rows:
+        saved_files.append(str(SAVE_DIR / "parallel_coordinates.png"))
+
     print("\nAll graphs saved in:", SAVE_DIR)
-    print("Open them manually to review your leads.")
+
+    # ---------- Offer to open ----------
+    open_now = input("\nOpen them now to review your leads? (Y/N): ").strip().upper()
+    if open_now == "Y":
+        for f in saved_files:
+            webbrowser.open(f"file://{f}")
+            print(f"Opened: {f}")
 
 if __name__ == "__main__":
     main()
 PYEOF
 
 chmod +x quantiq_client.py
-
-# Give the Python client direct access to the keyboard
 ./quantiq_client.py </dev/tty
