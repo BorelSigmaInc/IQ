@@ -45,54 +45,36 @@ def validate_file(filepath):
     return True
 
 def main():
-    interactive = sys.stdin.isatty()
     print("=" * 60)
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
 
-    key = load_key()
-    if not key:
-        if interactive:
-            key = input("Enter your QuantIQ API key: ").strip()
-            save_key(key)
-            print("Key saved.")
-        else:
-            print("No API key found. Run interactively first with:  ./quantiq_client.py")
-            return
-    else:
-        print(f"Using saved API key: {key[:20]}...")
+    # Always ask for API key
+    key = input("Enter your QuantIQ API key: ").strip()
+    save_key(key)
+    print("Key saved.\n")
 
     # Optional own data file
-    filename = None
-    if interactive:
-        print("\nOptional: Provide your own lead file (press Enter to skip).")
-        filename = input("Data file name (e.g., my_leads.csv): ").strip()
+    filename = input("Optional: Data file name (e.g., my_leads.csv) or press Enter to skip: ").strip()
     if filename:
-        if interactive:
-            filetype = input("Type of file (csv/json/tsv/xlsx): ").strip().lower()
-            folder = input("Path of folder containing the file: ").strip()
-            full_path = os.path.join(folder, filename)
-            if validate_file(full_path):
-                consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
-                if consent == "Y":
-                    print("File accepted. (Upload feature will be added soon – currently using demo leads.)")
-                else:
-                    print("Consent denied. Using pre-loaded leads.")
+        filetype = input("Type of file (csv/json/tsv/xlsx): ").strip().lower()
+        folder = input("Path of folder containing the file: ").strip()
+        full_path = os.path.join(folder, filename)
+        if validate_file(full_path):
+            consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
+            if consent == "Y":
+                print("File accepted. (Upload feature coming soon – using demo leads for now.)")
             else:
-                print("File invalid. Continuing with demo leads.")
+                print("Consent denied. Using pre-loaded leads.")
         else:
-            print("File upload not supported in non-interactive mode. Using demo leads.")
+            print("File invalid. Continuing with demo leads.")
     else:
-        if not interactive:
-            print("No file provided. Using pre-loaded leads from QuantIQ server.")
+        print("No file provided. Using pre-loaded leads from QuantIQ server.")
 
     limit = 10
-    if interactive:
-        ans = input("\nHow many leads would you like to score? (default 10): ").strip()
-        if ans.isdigit():
-            limit = int(ans)
-    else:
-        print("Non-interactive run – using default of 10 leads.")
+    ans = input("\nHow many leads would you like to score? (default 10): ").strip()
+    if ans.isdigit():
+        limit = int(ans)
 
     print(f"\nFetching {limit} leads from QuantIQ API...")
     try:
@@ -219,4 +201,7 @@ if __name__ == "__main__":
 PYEOF
 
 chmod +x quantiq_client.py
+
+# Reconnect stdin to the terminal so the client can read your inputs
+exec < /dev/tty
 ./quantiq_client.py
