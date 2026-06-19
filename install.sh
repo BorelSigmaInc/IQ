@@ -5,7 +5,7 @@ INSTALL_DIR="$HOME/quantiq-client"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# ---------- fast path ----------
+# Fast path – skip pip if venv already exists
 if [ ! -d "venv" ]; then
     python3 -m venv venv
     source venv/bin/activate
@@ -16,14 +16,16 @@ fi
 
 cat > quantiq_client.py << 'PYEOF'
 #!/usr/bin/env python3
-"""QuantIQ Client – Interactive lead scoring with terminal table and saved graphs."""
+"""QuantIQ Client – interactive parallel coordinates + static graphs."""
 
 import sys, os, json, webbrowser
 import requests
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')
+# IMPORTANT: use interactive backend for the parallel coordinates window
+matplotlib.use('TkAgg')   # works on Linux with python3-tk installed; fallback to Qt5Agg if needed
 import matplotlib.pyplot as plt
+import mplcursors
 from pathlib import Path
 
 CONFIG_FILE = Path.home() / ".quantiq_config.json"
@@ -51,7 +53,7 @@ def main():
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
 
-    # 1. Consent before anything else
+    # 1. Consent
     consent = input("Proceed to score leads using QuantIQ API? (Y/N): ").strip().upper()
     if consent != "Y":
         print("Exiting. You can run the command again when you're ready.")
@@ -130,7 +132,7 @@ def main():
     print("  Stats  = 1.0")
     print("  OpsRes = -10")
 
-    # ---------- Parallel coordinates (saved) ----------
+    # ---------- Interactive parallel coordinates ----------
     if plot_rows:
         data_arr = np.array(plot_rows)
         axes_idx = [0, 3, 4, 5, 6, 7, 8]
@@ -151,19 +153,59 @@ def main():
                 X[:, i] = (col - minv) / (maxv - minv) if maxv > minv else 0.5
 
         fig, ax = plt.subplots(figsize=(12,6))
+        lines = []
         for i in range(n_leads):
             cmap = plt.cm.Blues if intent_vals[i] == 1 else plt.cm.Oranges
             c_intensity = 0.2 + 0.8 * (priority_vals[i] - priority_vals.min()) / (priority_vals.max() - priority_vals.min())
-            ax.plot(range(n_axes), X[i], marker='o', markersize=2, linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
+            line, = ax.plot(range(n_axes), X[i], marker='o', markersize=2,
+                            linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
+            lines.append(line)
 
         ax.set_xticks(range(n_axes))
         ax.set_xticklabels(axes_names)
-        ax.set_title('Parallel Coordinates – Lead Profiles')
-        path = SAVE_DIR / "parallel_coordinates.png"
+        ax.set_title('Interactive Parallel Coordinates – Hover to highlight a lead')
+
+        # Hover behaviour
+        def on_hover(sel):
+            idx = lines.index(sel.artist)
+            for j, l in enumerate(lines):
+                if j == idx:
+                    l.set_linewidth(2.0)
+                    l.set_alpha(1.0)
+                else:
+                    l.set_linewidth(0.6)
+                    l.set_alpha(0.3)
+            sel.annotation.set_text(f"Lead ID: {lead_ids[idx]}")
+            sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)
+            fig.canvas.draw_idle()
+
+        def on_mouse_move(event):
+            if event.inaxes != ax:
+                for l in lines:
+                    l.set_linewidth(0.8)
+                    l.set_alpha(0.7)
+                fig.canvas.draw_idle()
+                return
+            over = any(line.contains(event)[0] for line in lines)
+            if not over:
+                for l in lines:
+                    l.set_linewidth(0.8)
+                    l.set_alpha(0.7)
+                fig.canvas.draw_idle()
+
+        cursor = mplcursors.cursor(lines, hover=True)
+        cursor.connect("add", on_hover)
+        cursor.connect("remove", lambda sel: None)
+        fig.canvas.mpl_connect("motion_notify_event", on_mouse_move)
+
         plt.tight_layout()
-        plt.savefig(path, dpi=120)
-        plt.close()
-        print(f"\nParallel coordinates graph saved to: {path}")
+        plt.show()   # Opens interactive window; script pauses here until user closes it
+
+        # After the window is closed, save a static copy
+        save_path = SAVE_DIR / "parallel_coordinates.png"
+        fig.savefig(save_path, dpi=120)
+        plt.close(fig)
+        print(f"\nParallel coordinates graph saved to: {save_path}")
 
     # ---------- Download server graphs ----------
     saved_files = []
@@ -184,18 +226,18 @@ def main():
         except Exception as e:
             print(f"  {name}: error - {e}")
 
-    # Add parallel coordinates to the list
-    if plot_rows:
-        saved_files.append(str(SAVE_DIR / "parallel_coordinates.png"))
-
     print("\nAll graphs saved in:", SAVE_DIR)
 
-    # ---------- Offer to open ----------
-    open_now = input("\nOpen them now to review your leads? (Y/N): ").strip().upper()
-    if open_now == "Y":
-        for f in saved_files:
-            webbrowser.open(f"file://{f}")
-            print(f"Opened: {f}")
+    # Offer to open the static graphs
+    if saved_files or plot_rows:
+        open_now = input("\nOpen the saved graphs now to review your leads? (Y/N): ").strip().upper()
+        if open_now == "Y":
+            # open the parallel coordinates static image
+            pc_path = SAVE_DIR / "parallel_coordinates.png"
+            if pc_path.exists():
+                webbrowser.open(f"file://{pc_path}")
+            for f in saved_files:
+                webbrowser.open(f"file://{f}")
 
 if __name__ == "__main__":
     main()
