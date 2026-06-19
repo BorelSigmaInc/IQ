@@ -5,13 +5,12 @@ INSTALL_DIR="$HOME/quantiq-client"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
+# Always ensure the virtual environment and all dependencies are ready
 if [ ! -d "venv" ]; then
     python3 -m venv venv
-    source venv/bin/activate
-    pip install -q requests matplotlib pandas numpy plotly
-else
-    source venv/bin/activate
 fi
+source venv/bin/activate
+pip install -q requests matplotlib pandas numpy plotly
 
 cat > quantiq_client.py << 'PYEOF'
 #!/usr/bin/env python3
@@ -133,11 +132,9 @@ def main():
 
     # ---------- Interactive parallel coordinates (Plotly HTML) ----------
     if plot_rows:
-        # Build DataFrame for Plotly
         df = pd.DataFrame(plot_rows, columns=[
             'Priority', 'LeadID', 'Intent', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat'
         ])
-        # Create parallel coordinates plot
         fig = px.parallel_coordinates(
             df,
             dimensions=['Priority', 'Kernel', 'RBF', 'Gap', 'Unc', 'Ent', 'QFeat'],
@@ -146,7 +143,6 @@ def main():
             labels={col: col for col in df.columns},
             title='Interactive Parallel Coordinates – Hover to see Lead ID'
         )
-        # Add LeadID as hover data
         fig.update_traces(
             hovertemplate='<br>'.join([
                 'LeadID: %{customdata[0]}',
@@ -158,7 +154,7 @@ def main():
         fig.write_html(str(html_path))
         print(f"\nInteractive parallel coordinates saved to: {html_path}")
 
-        # Also save a static PNG using matplotlib
+        # Static PNG version
         data_arr = np.array(plot_rows)
         axes_idx = [0, 3, 4, 5, 6, 7, 8]
         axes_names = ['Priority','Kernel','RBF','Gap','Unc','Ent','QFeat']
@@ -211,14 +207,12 @@ def main():
 
     print("\nAll graphs saved in:", SAVE_DIR)
 
-    # Offer to open the interactive HTML (parallel coordinates) and static graphs
+    # Offer to open the interactive HTML and static graphs
     open_now = input("\nOpen the graphs now to review your leads? (Y/N): ").strip().upper()
     if open_now == "Y":
-        # Open the interactive parallel coordinates HTML file first
         html_path = SAVE_DIR / "parallel_coordinates.html"
         if html_path.exists():
             webbrowser.open(f"file://{html_path}")
-        # Then open static PNGs
         for f in saved_files:
             webbrowser.open(f"file://{f}")
 
