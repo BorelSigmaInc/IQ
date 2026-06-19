@@ -5,10 +5,16 @@ INSTALL_DIR="$HOME/quantiq-client"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-python3 -m venv venv
-source venv/bin/activate
-pip install -q requests matplotlib pandas numpy mplcursors
+# ---------- fast path: skip if venv already exists ----------
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -q requests matplotlib pandas numpy mplcursors
+else
+    source venv/bin/activate
+fi
 
+# ---------- write / update the client script ----------
 cat > quantiq_client.py << 'PYEOF'
 #!/usr/bin/env python3
 """QuantIQ Client – Interactive lead scoring with terminal table and saved graphs."""
@@ -17,9 +23,8 @@ import sys, os, json
 import requests
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')           # do not open windows automatically
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import mplcursors
 from pathlib import Path
 
 CONFIG_FILE = Path.home() / ".quantiq_config.json"
@@ -47,7 +52,7 @@ def main():
     print("  Q U A N T I Q   L E A D   I N T E L L I G E N C E")
     print("=" * 60)
 
-    # 1. API key (always ask)
+    # 1. API key
     key = input("Enter your QuantIQ API key: ").strip()
     save_key(key)
     print("Key saved.\n")
@@ -61,7 +66,7 @@ def main():
         if validate_file(full_path):
             consent = input(f"Allow QuantIQ to access '{full_path}'? (Y/N): ").strip().upper()
             if consent == "Y":
-                print("File accepted. (Upload feature will be added soon – currently using demo leads.)")
+                print("File accepted. (Upload feature coming soon – using demo leads for now.)")
             else:
                 print("Consent denied. Using pre-loaded leads.")
         else:
@@ -91,7 +96,7 @@ def main():
     graphs = data.get("graphs", {})
     usage = data.get("usage", {})
 
-    # -------- Terminal table (all 9 columns) ----------
+    # ---------- Terminal table ----------
     print(f"\nCall #{usage.get('call_number', '?')}  |  {limit} leads")
     headers = ["Priority", "LeadID", "Intent", "Kernel", "RBF", "Gap", "Unc", "Ent", "QFeat"]
     row_fmt = "{:<10}" * len(headers)
@@ -119,7 +124,7 @@ def main():
     print("  Stats  = 1.0")
     print("  OpsRes = -10")
 
-    # ---------- Interactive parallel coordinates (saved to file) ----------
+    # ---------- Parallel coordinates (saved) ----------
     if plot_rows:
         data_arr = np.array(plot_rows)
         axes_idx = [0, 3, 4, 5, 6, 7, 8]
@@ -140,29 +145,24 @@ def main():
                 X[:, i] = (col - minv) / (maxv - minv) if maxv > minv else 0.5
 
         fig, ax = plt.subplots(figsize=(12,6))
-        lines = []
         for i in range(n_leads):
             cmap = plt.cm.Blues if intent_vals[i] == 1 else plt.cm.Oranges
             c_intensity = 0.2 + 0.8 * (priority_vals[i] - priority_vals.min()) / (priority_vals.max() - priority_vals.min())
-            line, = ax.plot(range(n_axes), X[i], marker='o', markersize=2,
-                            linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
-            lines.append(line)
+            ax.plot(range(n_axes), X[i], marker='o', markersize=2, linewidth=0.8, alpha=0.7, color=cmap(c_intensity))
 
         ax.set_xticks(range(n_axes))
         ax.set_xticklabels(axes_names)
-        ax.set_title('Interactive Parallel Coordinates – Hover to highlight a lead')
-
-        # Save the static parallel coordinates figure
-        parallel_path = SAVE_DIR / "parallel_coordinates.png"
+        ax.set_title('Parallel Coordinates – Lead Profiles')
+        path = SAVE_DIR / "parallel_coordinates.png"
         plt.tight_layout()
-        plt.savefig(parallel_path, dpi=120)
+        plt.savefig(path, dpi=120)
         plt.close()
-        print(f"\nParallel coordinates graph saved to: {parallel_path}")
+        print(f"\nParallel coordinates graph saved to: {path}")
 
-    # Download server-generated graphs
+    # ---------- Download server graphs ----------
     print("\nServer analytical graphs (2D, 3D, comparison):")
-    for name, path in graphs.items():
-        url = f"{API_BASE}{path}"
+    for name, rel_path in graphs.items():
+        url = f"{API_BASE}{rel_path}"
         try:
             r = requests.get(url)
             if r.status_code == 200:
@@ -185,6 +185,5 @@ PYEOF
 
 chmod +x quantiq_client.py
 
-# Reconnect keyboard so the client can answer prompts
-exec < /dev/tty
-./quantiq_client.py
+# Give the Python client direct access to the keyboard
+./quantiq_client.py </dev/tty
